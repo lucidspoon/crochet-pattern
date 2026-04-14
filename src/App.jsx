@@ -69,6 +69,7 @@ export default function App() {
   const [supported, setSupported] = useState(true)
   const [copied, setCopied] = useState(false)
   const recognitionRef = useRef(null)
+  const isListeningRef = useRef(false)
 
   useEffect(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
@@ -78,7 +79,9 @@ export default function App() {
     }
 
     const recognition = new SR()
-    recognition.continuous = true
+    // continuous:true causes "network" errors in Edge on Mac; instead we
+    // restart manually in onend to simulate continuous listening.
+    recognition.continuous = false
     recognition.interimResults = true
     recognition.lang = 'en-US'
 
@@ -108,22 +111,25 @@ export default function App() {
 
     recognition.onerror = (event) => {
       if (event.error === 'no-speech') return
-      if (event.error === 'network') {
-        setError(
-          'Speech recognition network error. ' +
-          'In Edge, go to edge://settings/privacy and enable "Use online speech recognition". ' +
-          'Then try again.'
-        )
-      } else {
-        setError(`Microphone error: ${event.error}`)
-      }
+      setError(`Microphone error: ${event.error}`)
+      isListeningRef.current = false
       setIsListening(false)
       setInterimText('')
     }
 
     recognition.onend = () => {
-      setIsListening(false)
       setInterimText('')
+      // Restart automatically if the user hasn't stopped listening
+      if (isListeningRef.current) {
+        try {
+          recognition.start()
+        } catch {
+          isListeningRef.current = false
+          setIsListening(false)
+        }
+      } else {
+        setIsListening(false)
+      }
     }
 
     recognitionRef.current = recognition
@@ -133,14 +139,17 @@ export default function App() {
   const toggleListening = () => {
     if (!supported) return
     if (isListening) {
+      isListeningRef.current = false
       recognitionRef.current?.stop()
     } else {
       setError('')
       setInterimText('')
       try {
+        isListeningRef.current = true
         recognitionRef.current?.start()
         setIsListening(true)
       } catch {
+        isListeningRef.current = false
         setError('Could not start microphone. Try refreshing the page.')
       }
     }
